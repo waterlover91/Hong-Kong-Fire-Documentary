@@ -1,0 +1,74 @@
+name: Archive Links to IPFS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'content/**/*.md'
+  workflow_dispatch:
+
+jobs:
+  archive-links:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 markdown yt-dlp python-magic-bin
+          
+      - name: Install IPFS CLI
+        run: |
+          wget https://dist.ipfs.tech/kubo/v0.24.0/kubo_v0.24.0_linux-amd64.tar.gz
+          tar -xvzf kubo_v0.24.0_linux-amd64.tar.gz
+          cd kubo
+          sudo bash install.sh
+          ipfs --version
+      
+      - name: Initialize IPFS
+        run: |
+          ipfs init
+          ipfs daemon &
+          sleep 10
+          
+      - name: Find new links
+        id: find_links
+        run: |
+          python scripts/find_new_links.py
+          
+      - name: Download and upload to IPFS
+        id: upload_ipfs
+        env:
+          PINATA_API_KEY: ${{ secrets.PINATA_API_KEY }}
+          PINATA_SECRET_KEY: ${{ secrets.PINATA_SECRET_KEY }}
+          WEB3_STORAGE_TOKEN: ${{ secrets.WEB3_STORAGE_TOKEN }}
+        run: |
+          python scripts/archive_to_ipfs.py
+          
+      - name: Update markdown files
+        run: |
+          python scripts/update_links.py
+          
+      - name: Commit changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add docs/
+          git diff --staged --quiet || git commit -m "Archive links to IPFS [skip ci]"
+          
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
